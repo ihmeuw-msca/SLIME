@@ -122,6 +122,7 @@ class CovModelSet:
         assert all([isinstance(cov_model, CovModel)
                     for cov_model in cov_models])
         self.cov_models = cov_models
+        self.num_covs = len(self.cov_models)
 
         self.var_size = None
         self.var_sizes = None
@@ -137,19 +138,19 @@ class CovModelSet:
             data (MRData): MRData object.
         """
         for cov_model in self.cov_models:
-            cov_model.attach(data)
+            cov_model.attach_data(data)
 
         self.var_sizes = np.array([
             cov_model.var_size for cov_model in self.cov_models
         ])
-        self.var_size = np.sum(self.var_size)
+        self.var_size = np.sum(self.var_sizes)
         self.var_idx = utils.sizes_to_indices(self.var_sizes)
 
     def detach_data(self):
         """Detach the object from the data.
         """
         for cov_model in self.cov_models:
-            cov_model.detach()
+            cov_model.detach_data()
 
         self.var_size = None
         self.var_sizes = None

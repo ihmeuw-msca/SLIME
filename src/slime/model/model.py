@@ -29,6 +29,8 @@ class MRModel:
         # pass data into the covariate models
         self.cov_models.attach_data(self.data)
         self.bounds = self.cov_models.extract_bounds()
+        self.opt_result = None
+        self.result = None
 
     def objective(self, x):
         """Objective function for the optimization.
@@ -72,7 +74,7 @@ class MRModel:
         """
         if x0 is None:
             x0 = np.zeros(self.cov_models.var_size)
-        result = sciopt.minimize(
+        self.opt_result = sciopt.minimize(
             fun=self.objective,
             x0=x0,
             jac=self.gradient,
@@ -81,4 +83,15 @@ class MRModel:
             options=options
         )
 
-        self.result = result
+        coefs = []
+        for i, idx in enumerate(self.cov_models.var_idx):
+            if self.cov_models.cov_models[i].use_re:
+                coefs.append(self.opt_result.x[idx])
+            else:
+                coefs.append(np.repeat(self.opt_result.x[idx],
+                                       self.data.num_groups))
+        coefs = np.vstack(coefs)
+        self.result = {
+            g: coefs[:, i]
+            for i, g in enumerate(self.data.groups)
+        }
