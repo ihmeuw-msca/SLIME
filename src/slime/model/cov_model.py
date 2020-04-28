@@ -4,8 +4,10 @@
     ~~~~~~~~~
 """
 import numpy as np
+from scipy.linalg import block_diag
 from slime.core import MRData
 import slime.core.utils as utils
+
 
 class CovModel:
     """Single covariate model.
@@ -35,8 +37,12 @@ class CovModel:
 
         self.name = self.col_cov
         self.var_size = None
+
         self.cov = None
+        self.cov_mat = None
         self.cov_scale = None
+
+        self.group_idx = None
         self.group_sizes = None
 
     def attach_data(self, data):
@@ -45,6 +51,8 @@ class CovModel:
         Args:
             data (MRData): MRData object.
         """
+        self.group_idx = data.group_idx
+        self.group_sizes = data.group_sizes
         assert self.col_cov in data.df
         if self.use_re:
             self.var_size = data.num_groups
@@ -56,8 +64,13 @@ class CovModel:
         assert cov_scale > 0.0
         self.cov = cov/cov_scale
         self.cov_scale = cov_scale
-
-        self.group_sizes = data.group_sizes
+        if self.use_re:
+            self.cov_mat = block_diag(*[
+                self.cov[self.group_idx[i]][:, None]
+                for i in range(data.num_groups)
+            ])
+        else:
+            self.cov_mat = self.cov[:, None]
 
     def detach_data(self):
         """Detach the object from the data.
@@ -84,8 +97,7 @@ class CovModel:
         Args:
             x (np.ndarray): optimization variable.
         """
-        cov_multiplier = self.get_cov_multiplier(x)
-        return self.cov*cov_multiplier
+        return self.cov*self.get_cov_multiplier(x)
 
     def prior_objective(self, x):
         """Objective related to prior.
@@ -97,11 +109,13 @@ class CovModel:
 
         # random effects priors
         if self.use_re:
-            val += 0.5*np.sum((x - np.mean(x))**2)/self.re_var
+            re = x - np.mean(x)
+            val += 0.5*np.sum((re/self.cov_scale)**2)/self.re_var
 
         # Gaussian prior for the effects
         if self.gprior is not None:
-            val += 0.5*np.sum(((x - self.gprior[0])/self.gprior[1])**2)
+            val += 0.5*np.sum(((x/self.cov_scale - self.gprior[0])/
+                               self.gprior[1])**2)
 
         return val
 

@@ -5,6 +5,7 @@
 """
 import numpy as np
 import pandas as pd
+from . import utils
 
 
 class MRData:
@@ -47,6 +48,7 @@ class MRData:
         self.groups, self.group_sizes = np.unique(self.df[self.col_group],
                                                   return_counts=True)
 
+        self.group_idx = utils.sizes_to_indices(self.group_sizes)
         self.num_groups = len(self.groups)
         self.num_obs = self.df.shape[0]
 
