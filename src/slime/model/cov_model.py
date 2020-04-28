@@ -125,7 +125,7 @@ class CovModel:
         if self.bounds is None:
             bounds = np.array([-np.inf, np.inf])
         else:
-            bounds = self.bounds
+            bounds = self.bounds*self.cov_scale
 
         return np.repeat(bounds[None, :], self.var_size, axis=0)
 
