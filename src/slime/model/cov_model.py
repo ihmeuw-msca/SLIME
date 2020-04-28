@@ -77,8 +77,10 @@ class CovModel:
         """
         self.var_size = None
         self.cov = None
+        self.cov_mat = None
         self.cov_scale = None
         self.group_sizes = None
+        self.group_idx = None
 
     def get_cov_multiplier(self, x):
         """Transform the effect to the optimization variable.
@@ -107,17 +109,37 @@ class CovModel:
         """
         val = 0.0
 
+        x = x/self.cov_scale
         # random effects priors
         if self.use_re:
-            re = x - np.mean(x)
-            val += 0.5*np.sum((re/self.cov_scale)**2)/self.re_var
+            val += 0.5*np.sum((x - np.mean(x))**2)/self.re_var
 
         # Gaussian prior for the effects
         if self.gprior is not None:
-            val += 0.5*np.sum(((x/self.cov_scale - self.gprior[0])/
-                               self.gprior[1])**2)
+            val += 0.5*np.sum(((x - self.gprior[0])/self.gprior[1])**2)
 
         return val
+
+    def gradient(self, x, residual, obs_se):
+        """Compute the gradient for the covariate multiplier.
+
+        Args:
+            x (np.ndarray): optimization variable.
+            residual (np.ndarray): residual array, observation minus prediction.
+            obs_se (np.ndarray): observation standard deviation.
+
+        Return:
+            np.ndarray: gradient
+        """
+        grad = -(self.cov_mat.T/obs_se).dot(residual/obs_se)
+        x = x/self.cov_scale
+        if self.use_re:
+            grad += ((x - np.mean(x))/self.re_var)/self.cov_scale
+
+        if self.gprior is not None:
+            grad += ((x - self.gprior[0])/self.gprior[1]**2)/self.cov_scale
+
+        return grad
 
     def extract_bounds(self):
         """Extract the bounds for the optimization problem.
@@ -204,6 +226,22 @@ class CovModelSet:
         """
         return np.sum([
             cov_model.prior_objective(x[self.var_idx[i]])
+            for i, cov_model in enumerate(self.cov_models)
+        ])
+
+    def gradient(self, x, residual, obs_se):
+        """Gradient function.
+
+        Args:
+            x (np.ndarray): optimization variable.
+            residual (np.ndarray): residual array, observation minus prediction.
+            obs_se (np.ndarray): observation standard deviation.
+
+        Return:
+            np.ndarray: gradient
+        """
+        return np.hstack([
+            cov_model.gradient(x[self.var_idx[i]], residual, obs_se)
             for i, cov_model in enumerate(self.cov_models)
         ])
 

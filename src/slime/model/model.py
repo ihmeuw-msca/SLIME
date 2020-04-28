@@ -53,16 +53,9 @@ class MRModel:
         Args:
             x (np.ndarray): optimization variable.
         """
-        finfo = np.finfo(float)
-        step = finfo.tiny/finfo.eps
-        x_c = x + 0j
-        grad = np.zeros(x.size)
-        for i in range(x.size):
-            x_c[i] += step*1j
-            grad[i] = self.objective(x_c).imag/step
-            x_c[i] -= step*1j
-
-        return grad
+        prediction = self.cov_models.predict(x)
+        residual = self.obs - prediction
+        return self.cov_models.gradient(x, residual, self.obs_se)
 
     def fit_model(self, x0=None, options=None):
         """Fit the model, including initial condition and parameter.
