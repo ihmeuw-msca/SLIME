@@ -36,6 +36,7 @@ class CovModel:
         self.name = self.col_cov
         self.var_size = None
         self.cov = None
+        self.cov_scale = None
         self.group_sizes = None
 
     def attach_data(self, data):
@@ -49,7 +50,13 @@ class CovModel:
             self.var_size = data.num_groups
         else:
             self.var_size = 1
-        self.cov = data.df[self.col_cov].values
+
+        cov = data.df[self.col_cov].values
+        cov_scale = np.linalg.norm(cov)
+        assert cov_scale > 0.0
+        self.cov = cov/cov_scale
+        self.cov_scale = cov_scale
+
         self.group_sizes = data.group_sizes
 
     def detach_data(self):
@@ -57,6 +64,7 @@ class CovModel:
         """
         self.var_size = None
         self.cov = None
+        self.cov_scale = None
         self.group_sizes = None
 
     def get_cov_multiplier(self, x):
@@ -127,6 +135,8 @@ class CovModelSet:
         self.var_size = None
         self.var_sizes = None
         self.var_idx = None
+        self.groups = None
+        self.num_groups = None
 
         if data is not None:
             self.attach_data(data)
@@ -145,6 +155,8 @@ class CovModelSet:
         ])
         self.var_size = np.sum(self.var_sizes)
         self.var_idx = utils.sizes_to_indices(self.var_sizes)
+        self.groups = data.groups
+        self.num_groups = data.num_groups
 
     def detach_data(self):
         """Detach the object from the data.
@@ -155,6 +167,9 @@ class CovModelSet:
         self.var_size = None
         self.var_sizes = None
         self.var_idx = None
+
+        self.groups = None
+        self.num_groups = None
 
     def predict(self, x):
         """Predict for the optimization.
@@ -185,3 +200,20 @@ class CovModelSet:
             cov_model.extract_bounds()
             for cov_model in self.cov_models
         ])
+
+    def process_result(self, x):
+        """Process the result, organize it by group and scale by the
+        cov_scale.
+
+        Args:
+            x (np.ndarray): optimization variable.
+        """
+        coefs = np.vstack([
+            x[self.var_idx[i]]/cov_model.cov_scale if cov_model.use_re else
+            np.repeat(x[self.var_idx[i]], self.num_groups)/cov_model.cov_scale
+            for i, cov_model in enumerate(self.cov_models)
+        ])
+        return {
+            g: coefs[:, i]
+            for i, g in enumerate(self.groups)
+        }

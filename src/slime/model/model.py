@@ -83,15 +83,4 @@ class MRModel:
             options=options
         )
 
-        coefs = []
-        for i, idx in enumerate(self.cov_models.var_idx):
-            if self.cov_models.cov_models[i].use_re:
-                coefs.append(self.opt_result.x[idx])
-            else:
-                coefs.append(np.repeat(self.opt_result.x[idx],
-                                       self.data.num_groups))
-        coefs = np.vstack(coefs)
-        self.result = {
-            g: coefs[:, i]
-            for i, g in enumerate(self.data.groups)
-        }
+        self.result = self.cov_models.process_result(self.opt_result.x)
