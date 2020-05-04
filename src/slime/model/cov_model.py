@@ -3,47 +3,29 @@
     cov_model
     ~~~~~~~~~
 """
+from dataclasses import dataclass, field
+from typing import Union
 import numpy as np
 from scipy.linalg import block_diag
 from slime.core import MRData
 import slime.core.utils as utils
 
 
+@dataclass
 class CovModel:
     """Single covariate model.
     """
-    def __init__(self, col_cov,
-                 use_re=False,
-                 bounds=None,
-                 gprior=None,
-                 re_var=1.0):
-        """Constructor CovModel.
+    name: str
+    use_re: bool = False
+    bounds: np.ndarray = field(default_factory=utils.create_dummy_bounds)
+    gprior: np.ndarray = field(default_factory=utils.create_dummy_gprior)
+    re_var: float = np.inf
 
-        Args:
-            col_cov (str): Column for the covariate.
-            use_re (bool, optional): If use the random effects.
-            bounds (np.ndarray | None, optional):
-                Bounds for the covariate multiplier.
-            gprior (np.ndarray | None, optional):
-                Gaussian prior for the covariate multiplier.
-            re_var (float, optional):
-                Variance of the random effect, if use random effect.
-        """
-        self.col_cov = col_cov
-        self.use_re = use_re
-        self.bounds = bounds
-        self.gprior = gprior
-        self.re_var = re_var
-
-        self.name = self.col_cov
-        self.var_size = None
-
-        self.cov = None
-        self.cov_mat = None
-        self.cov_scale = None
-
-        self.group_idx = None
-        self.group_sizes = None
+    var_size: Union[int, None] = field(init=False, repr=False, default=None)
+    cov: Union[np.ndarray, None] = field(init=False, repr=False, default=None)
+    cov_mat: Union[np.ndarray, None] = field(init=False, repr=False, default=None)
+    cov_scale: Union[float, None] = field(init=False, repr=False, default=None)
+    group_idx: Union[np.ndarray, None] = field(init=False, repr=False, default=None)
 
     def attach_data(self, data):
         """Attach the data.
@@ -53,13 +35,13 @@ class CovModel:
         """
         self.group_idx = data.group_idx
         self.group_sizes = data.group_sizes
-        assert self.col_cov in data.df
+        assert self.name in data.df
         if self.use_re:
             self.var_size = data.num_groups
         else:
             self.var_size = 1
 
-        cov = data.df[self.col_cov].values
+        cov = data.df[self.name].values
         cov_scale = np.linalg.norm(cov)
         assert cov_scale > 0.0
         self.cov = cov/cov_scale

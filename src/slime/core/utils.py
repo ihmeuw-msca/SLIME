@@ -21,3 +21,10 @@ def sizes_to_indices(sizes):
     return [
         np.arange(l, u) for l, u in zip(l_id, u_id)
     ]
+
+def create_dummy_bounds():
+    return np.array([-np.inf, np.inf])
+
+
+def create_dummy_gprior():
+    return np.array([0.0, np.inf])
