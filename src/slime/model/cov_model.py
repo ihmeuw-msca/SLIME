@@ -35,67 +35,6 @@ class Covariate:
         else:
             return [cov]
 
-    def optvar2covmul(self,
-                      x: np.ndarray,
-                      group_sizes: np.ndarray) -> np.ndarray:
-        """Converting optimization variable to covariate multiplier.
-        """
-        return np.repeat(x, group_sizes) if self.use_re else x
-
-    def splitdata(self,
-                  y: np.ndarray,
-                  group_sizes: np.ndarray) -> List[np.ndarray]:
-        """Split the data if use random effect.
-        """
-        return np.split(y, np.cumsum(group_sizes[:-1]))
-
-    def objective_gprior(self,
-                         x: np.ndarray,
-                         group_sizes: np.ndarray) -> float:
-        """Get the objective from the Gaussian prior for the total effects.
-        """
-        x = self.optvar2covmul(x, group_sizes)
-        val = 0.0
-        if np.isfinite(self.gprior[1]):
-            val += 0.5*np.sum(((x - self.gprior[0])/self.gprior[1])**2)
-
-        if self.use_re and np.isfinite(self.re_var):
-            val += 0.5*((x - np.mean(x))**2)/self.re_var
-
-        return val
-
-    def predict(self,
-                x: np.ndarray,
-                covs: Dict[str, np.ndarray],
-                group_sizes: np.ndarray) -> np.ndarray:
-        """Predict with the optimization variable and provided covariates.
-        """
-        return covs[self.name]*self.optvar2covmul(x, group_sizes)
-
-    def gradient(self,
-                 x: np.ndarray,
-                 covs: Dict[str, np.ndarray],
-                 residual: np.ndarray,
-                 group_sizes: np.ndarray) -> np.ndarray:
-        """Compute the gradient of the optimization variable.
-        """
-        x = self.optvar2covmul(x, group_sizes)
-        residual = self.splitdata(residual, group_sizes)
-        cov = self.splitdata(covs[self.name], group_sizes)
-
-        if self.use_re:
-            grad = np.array(list(map(np.dot, cov, residual)))
-        else:
-            grad = np.array([np.dot(cov, residual)])
-
-        if np.isfinite(self.gprior[1]):
-            grad += (x - self.gprior[0])/self.gprior[1]**2
-
-        if self.use_re and np.isfinite(self.re_var):
-            grad += (x - np.mean(x))/self.re_var
-
-        return grad
-
 
 class MRModel:
     """Covariate Model

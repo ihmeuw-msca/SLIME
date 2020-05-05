@@ -3,61 +3,87 @@
     data
     ~~~~
 """
+from dataclasses import dataclass, field
+from typing import Dict, List, Union
 import numpy as np
 import pandas as pd
-from . import utils
+from .utils import empty_array
 
 
+@dataclass
 class MRData:
-    """Data used for fitting the simple linear mixed effects model.
+    """Data for simple linear mixed effects model.
     """
+    group: np.ndarray = field(default_factory=empty_array)
+    obs: np.ndarray = field(default_factory=empty_array)
+    obs_se: np.ndarray = field(default_factory=empty_array)
+    covs: Dict[str, np.ndarray] = field(default_factory=dict)
 
-    def __init__(self, df, col_group, col_obs, col_obs_se=None, col_covs=None):
-        """Constructor of the ODEData.
-        Args:
-            df (pd.DataFrame): Dataframe contains data.
-            col_group (str): Name of the group column.
-            col_obs (str): Name of the observation column.
-            col_obs_se (str | None, optional):
-                Name of the observation standard error.
-            col_covs (list{str} | None, optional): Names of the covariates.
+    num_obs: int = field(init=False, default=0)
+    num_groups: int = field(init=False, default=0)
+    groups: np.ndarray = field(init=False, default_factory=empty_array)
+    group_sizes: np.ndarray = field(init=False, default_factory=empty_array)
+
+    def __post_init__(self):
+        self._get_num_obs()
+        self._get_group_structure()
+        self._add_intercept()
+        self._add_obs_se()
+
+        assert len(self.group) == self.num_obs
+        assert len(self.obs) == self.num_obs
+        assert len(self.obs_se) == self.num_obs
+        assert all([len(self.covs[name]) == self.num_obs for name in self.covs])
+        assert len(self.groups) == self.num_groups
+        assert sum(self.group_sizes) == self.num_groups
+
+    def _get_num_obs(self):
+        """Get number of observation.
         """
-        self.df_original = df.copy()
-        self.col_group = col_group
-        self.col_obs = col_obs
-        self.col_obs_se = col_obs_se
-        self.col_covs = [] if col_covs is None else col_covs
+        self.num_obs = len(self.obs)
 
-        # add intercept as default covariates
-        df['intercept'] = 1.0
-        if 'intercept' not in self.col_covs:
-            self.col_covs.append('intercept')
-
-        # add observation standard error
-        if self.col_obs_se is None:
-            self.col_obs_se = 'obs_se'
-            df[self.col_obs_se] = 1.0
-
-        assert self.col_group in df
-        assert self.col_obs in df
-        assert self.col_obs_se in df
-        assert all([name in df for name in self.col_covs])
-        self.df = df[[self.col_group, self.col_obs, self.col_obs_se] +
-                     self.col_covs].copy()
-        self.df.sort_values(col_group, inplace=True)
-        self.groups, self.group_sizes = np.unique(self.df[self.col_group],
+    def _get_group_structure(self):
+        """Get group structure.
+        """
+        self.groups, self.group_sizes = np.unique(self.group,
                                                   return_counts=True)
-
-        self.group_idx = utils.sizes_to_indices(self.group_sizes)
         self.num_groups = len(self.groups)
-        self.num_obs = self.df.shape[0]
 
-    def df_by_group(self, group):
-        """Divide data by group.
-        Args:
-            group (any): Group id in the data frame.
-        Returns:
-            pd.DataFrame: The corresponding data frame.
+    def _add_intercept(self):
+        """Add intercept.
         """
-        assert group in self.groups
-        return self.df[self.df[self.col_group] == group]
+        self.covs['intercept'] = np.ones(self.num_obs)
+
+    def _add_obs_se(self):
+        """Add observation standard deviation.
+        """
+        if len(self.obs_se) == 0:
+            self.obs_se = np.ones(self.num_obs)
+
+    def reset_values(self):
+        """Reset all the attributes to default values.
+        """
+        self.group = empty_array()
+        self.obs = empty_array()
+        self.obs_se = empty_array()
+        self.covs = dict()
+        self.__post_init__()
+
+    def load_df(self, df: pd.DataFrame,
+                col_group: str,
+                col_obs: str,
+                col_obs_se: Union[str, None] = None,
+                col_covs: Union[List[str], None] = None):
+        """Load data from data frame.
+        """
+        self.reset_values()
+        self.group = df[col_group].to_numpy()
+        self.obs = df[col_obs].to_numpy()
+        if col_obs_se is not None:
+            self.obs_se = df[col_obs_se].to_numpy()
+        if col_covs is not None:
+            self.covs = {
+                col_cov: df[col_cov].to_numpy()
+                for col_cov in col_covs
+            }
+        self.__post_init__()

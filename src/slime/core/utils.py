@@ -37,3 +37,7 @@ def split_vec(x, sizes):
 
 def list_dot(x, y):
     return np.hstack(list(map(np.dot, x, y)))
+
+
+def empty_array():
+    return np.empty(list())
