@@ -4,10 +4,11 @@
     ~~~~~~~~~
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Union
+from typing import List
 import numpy as np
-from slime.core import MRData
-import slime.core.utils as utils
+from .data import MRData
+from .utils import create_dummy_bounds, create_dummy_gprior
+from .utils import split_vec, list_dot
 
 
 @dataclass
@@ -16,14 +17,14 @@ class Covariate:
     """
     name: str
     use_re: bool = False
-    bounds: np.ndarray = field(default_factory=utils.create_dummy_bounds)
-    gprior: np.ndarray = field(default_factory=utils.create_dummy_gprior)
+    bounds: np.ndarray = field(default_factory=create_dummy_bounds)
+    gprior: np.ndarray = field(default_factory=create_dummy_gprior)
     re_var: float = np.inf
 
     def get_var_size(self, data: MRData) -> int:
         """Get optimization variable size.
         """
-        return len(data.num_groups) if self.use_re else 1
+        return data.num_groups if self.use_re else 1
 
     def get_cov_data(self, data: MRData) -> List[np.ndarray]:
         """Get the covariate.
@@ -31,7 +32,7 @@ class Covariate:
         assert self.name in data.covs
         cov = data.covs[self.name]
         if self.use_re:
-            return utils.split_vec(cov, data.group_sizes)
+            return split_vec(cov, data.group_sizes)
         else:
             return [cov]
 
@@ -83,10 +84,10 @@ class MRModel:
         """Optimization objective function.
         """
         # convert optimization variable to total effect for cov and group
-        effects = utils.split_vec(x, self.var_sizes)
+        effects = split_vec(x, self.var_sizes)
         # compute the prediction
         prediction = sum([
-            utils.list_dot(effect, self.cov_data[i])
+            list_dot(effect, self.cov_data[i])
             for i, effect in enumerate(effects)
         ])
         # compute residual
@@ -109,19 +110,19 @@ class MRModel:
         """Optimization gradient function.
         """
         # convert optimization variable to total effect for cov and group
-        effects = utils.split_vec(x, self.var_sizes)
+        effects = split_vec(x, self.var_sizes)
         # compute the prediction
         prediction = sum([
-            utils.list_dot(effect, self.cov_data[i])
+            list_dot(effect, self.cov_data[i])
             for i, effect in enumerate(effects)
         ])
         # compute scaled residual
         residual = (self.obs - prediction)/self.obs_se**2
-        s_residual = utils.split_vec(residual, self.group_sizes)
+        s_residual = split_vec(residual, self.group_sizes)
         # gradient from the data likelihood
         grad = np.hstack([
-            utils.list_dot(self.cov_data[i], s_residual) if cov.use_re else
-            utils.list_dot(self.cov_data[i], [residual])
+            list_dot(self.cov_data[i], s_residual) if cov.use_re else
+            list_dot(self.cov_data[i], [residual])
             for i, cov in enumerate(self.covariates)
         ])
         # gradient from the Gaussian prior
