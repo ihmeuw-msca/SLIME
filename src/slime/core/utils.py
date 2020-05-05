@@ -28,3 +28,12 @@ def create_dummy_bounds():
 
 def create_dummy_gprior():
     return np.array([0.0, np.inf])
+
+
+def split_vec(x, sizes):
+    assert len(x) == sum(sizes)
+    return np.split(x, np.cumsum(sizes[:-1]))
+
+
+def list_dot(x, y):
+    return np.hstack(list(map(np.dot, x, y)))

@@ -4,16 +4,15 @@
     ~~~~~~~~~
 """
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Dict, List, Union
 import numpy as np
-from scipy.linalg import block_diag
 from slime.core import MRData
 import slime.core.utils as utils
 
 
 @dataclass
-class CovModel:
-    """Single covariate model.
+class Covariate:
+    """Covariate model settings
     """
     name: str
     use_re: bool = False
@@ -21,233 +20,179 @@ class CovModel:
     gprior: np.ndarray = field(default_factory=utils.create_dummy_gprior)
     re_var: float = np.inf
 
-    var_size: Union[int, None] = field(init=False, repr=False, default=None)
-    cov: Union[np.ndarray, None] = field(init=False, repr=False, default=None)
-    cov_mat: Union[np.ndarray, None] = field(init=False, repr=False, default=None)
-    cov_scale: Union[float, None] = field(init=False, repr=False, default=None)
-    group_idx: Union[np.ndarray, None] = field(init=False, repr=False, default=None)
-
-    def attach_data(self, data):
-        """Attach the data.
-
-        Args:
-            data (MRData): MRData object.
+    def get_var_size(self, data: MRData) -> int:
+        """Get optimization variable size.
         """
-        self.group_idx = data.group_idx
-        self.group_sizes = data.group_sizes
-        assert self.name in data.df
+        return len(data.num_groups) if self.use_re else 1
+
+    def get_cov_data(self, data: MRData) -> List[np.ndarray]:
+        """Get the covariate.
+        """
+        assert self.name in data.covs
+        cov = data.covs[self.name]
         if self.use_re:
-            self.var_size = data.num_groups
+            return utils.split_vec(cov, data.group_sizes)
         else:
-            self.var_size = 1
+            return [cov]
 
-        cov = data.df[self.name].values
-        cov_scale = np.linalg.norm(cov)
-        assert cov_scale > 0.0
-        self.cov = cov/cov_scale
-        self.cov_scale = cov_scale
-        if self.use_re:
-            self.cov_mat = block_diag(*[
-                self.cov[self.group_idx[i]][:, None]
-                for i in range(data.num_groups)
-            ])
-        else:
-            self.cov_mat = self.cov[:, None]
-
-    def detach_data(self):
-        """Detach the object from the data.
+    def optvar2covmul(self,
+                      x: np.ndarray,
+                      group_sizes: np.ndarray) -> np.ndarray:
+        """Converting optimization variable to covariate multiplier.
         """
-        self.var_size = None
-        self.cov = None
-        self.cov_mat = None
-        self.cov_scale = None
-        self.group_sizes = None
-        self.group_idx = None
+        return np.repeat(x, group_sizes) if self.use_re else x
 
-    def get_cov_multiplier(self, x):
-        """Transform the effect to the optimization variable.
-
-        Args:
-            x (np.ndarray): optimization variable.
+    def splitdata(self,
+                  y: np.ndarray,
+                  group_sizes: np.ndarray) -> List[np.ndarray]:
+        """Split the data if use random effect.
         """
-        if self.use_re:
-            return np.repeat(x, self.group_sizes)
-        else:
-            return np.repeat(x, self.group_sizes.sum())
+        return np.split(y, np.cumsum(group_sizes[:-1]))
 
-    def predict(self, x):
-        """Predict for the optimization problem.
-
-        Args:
-            x (np.ndarray): optimization variable.
+    def objective_gprior(self,
+                         x: np.ndarray,
+                         group_sizes: np.ndarray) -> float:
+        """Get the objective from the Gaussian prior for the total effects.
         """
-        return self.cov*self.get_cov_multiplier(x)
-
-    def prior_objective(self, x):
-        """Objective related to prior.
-
-        Args:
-            x (np.ndarray): optimization variable.
-        """
+        x = self.optvar2covmul(x, group_sizes)
         val = 0.0
-
-        x = x/self.cov_scale
-        # random effects priors
-        if self.use_re:
-            val += 0.5*np.sum((x - np.mean(x))**2)/self.re_var
-
-        # Gaussian prior for the effects
-        if self.gprior is not None:
+        if np.isfinite(self.gprior[1]):
             val += 0.5*np.sum(((x - self.gprior[0])/self.gprior[1])**2)
+
+        if self.use_re and np.isfinite(self.re_var):
+            val += 0.5*((x - np.mean(x))**2)/self.re_var
 
         return val
 
-    def gradient(self, x, residual, obs_se):
-        """Compute the gradient for the covariate multiplier.
-
-        Args:
-            x (np.ndarray): optimization variable.
-            residual (np.ndarray): residual array, observation minus prediction.
-            obs_se (np.ndarray): observation standard deviation.
-
-        Return:
-            np.ndarray: gradient
+    def predict(self,
+                x: np.ndarray,
+                covs: Dict[str, np.ndarray],
+                group_sizes: np.ndarray) -> np.ndarray:
+        """Predict with the optimization variable and provided covariates.
         """
-        grad = -(self.cov_mat.T/obs_se).dot(residual/obs_se)
-        x = x/self.cov_scale
-        if self.use_re:
-            grad += ((x - np.mean(x))/self.re_var)/self.cov_scale
+        return covs[self.name]*self.optvar2covmul(x, group_sizes)
 
-        if self.gprior is not None:
-            grad += ((x - self.gprior[0])/self.gprior[1]**2)/self.cov_scale
+    def gradient(self,
+                 x: np.ndarray,
+                 covs: Dict[str, np.ndarray],
+                 residual: np.ndarray,
+                 group_sizes: np.ndarray) -> np.ndarray:
+        """Compute the gradient of the optimization variable.
+        """
+        x = self.optvar2covmul(x, group_sizes)
+        residual = self.splitdata(residual, group_sizes)
+        cov = self.splitdata(covs[self.name], group_sizes)
+
+        if self.use_re:
+            grad = np.array(list(map(np.dot, cov, residual)))
+        else:
+            grad = np.array([np.dot(cov, residual)])
+
+        if np.isfinite(self.gprior[1]):
+            grad += (x - self.gprior[0])/self.gprior[1]**2
+
+        if self.use_re and np.isfinite(self.re_var):
+            grad += (x - np.mean(x))/self.re_var
 
         return grad
 
-    def extract_bounds(self):
-        """Extract the bounds for the optimization problem.
-        """
-        if self.bounds is None:
-            bounds = np.array([-np.inf, np.inf])
-        else:
-            bounds = self.bounds*self.cov_scale
 
-        return np.repeat(bounds[None, :], self.var_size, axis=0)
-
-
-class CovModelSet:
-    """A set of CovModel.
+class MRModel:
+    """Covariate Model
     """
-    def __init__(self, cov_models, data=None):
-        """Constructor of the covariate model set.
-
-        Args:
-            cov_models (list{CovModel}): A list of covaraite set.
-            data (MRData | None, optional): Data to be attached.
+    def __init__(self,
+                 covariates: List[Covariate],
+                 data: MRData = None):
+        """Constructor of the covariate model.
         """
-        assert isinstance(cov_models, list)
-        assert all([isinstance(cov_model, CovModel)
-                    for cov_model in cov_models])
-        self.cov_models = cov_models
-        self.num_covs = len(self.cov_models)
+        self.covariates = covariates
 
-        self.var_size = None
+        self.obs = None
+        self.obs_se = None
+        self.cov_data = None
+        self.group_sizes = None
         self.var_sizes = None
-        self.var_idx = None
-        self.groups = None
-        self.num_groups = None
 
         if data is not None:
             self.attach_data(data)
 
-    def attach_data(self, data):
+    def attach_data(self, data: MRData):
         """Attach the data.
-
-        Args:
-            data (MRData): MRData object.
         """
-        for cov_model in self.cov_models:
-            cov_model.attach_data(data)
-
+        self.obs = data.obs
+        self.obs_se = data.obs_se
+        self.cov_data = [
+            cov.get_cov_data(data)
+            for cov in self.covariates
+        ]
+        self.group_sizes = data.group_sizes
         self.var_sizes = np.array([
-            cov_model.var_size for cov_model in self.cov_models
+            cov.get_var_size(data)
+            for cov in self.covariates
         ])
-        self.var_size = np.sum(self.var_sizes)
-        self.var_idx = utils.sizes_to_indices(self.var_sizes)
-        self.groups = data.groups
-        self.num_groups = data.num_groups
 
     def detach_data(self):
         """Detach the object from the data.
         """
-        for cov_model in self.cov_models:
-            cov_model.detach_data()
-
-        self.var_size = None
+        self.obs = None
+        self.obs_se = None
+        self.cov_data = None
+        self.group_sizes = None
         self.var_sizes = None
-        self.var_idx = None
 
-        self.groups = None
-        self.num_groups = None
-
-    def predict(self, x):
-        """Predict for the optimization.
-
-        Args:
-            x (np.ndarray): optimization variable.
+    def objective(self, x: np.ndarray) -> float:
+        """Optimization objective function.
         """
-        return np.sum([
-            cov_model.predict(x[self.var_idx[i]])
-            for i, cov_model in enumerate(self.cov_models)
-        ], axis=0)
-
-    def prior_objective(self, x):
-        """Objective related to prior.
-
-        Args:
-            x (np.ndarray): optimization variable.
-        """
-        return np.sum([
-            cov_model.prior_objective(x[self.var_idx[i]])
-            for i, cov_model in enumerate(self.cov_models)
+        # convert optimization variable to total effect for cov and group
+        effects = utils.split_vec(x, self.var_sizes)
+        # compute the prediction
+        prediction = sum([
+            utils.list_dot(effect, self.cov_data[i])
+            for i, effect in enumerate(effects)
         ])
-
-    def gradient(self, x, residual, obs_se):
-        """Gradient function.
-
-        Args:
-            x (np.ndarray): optimization variable.
-            residual (np.ndarray): residual array, observation minus prediction.
-            obs_se (np.ndarray): observation standard deviation.
-
-        Return:
-            np.ndarray: gradient
-        """
-        return np.hstack([
-            cov_model.gradient(x[self.var_idx[i]], residual, obs_se)
-            for i, cov_model in enumerate(self.cov_models)
+        # compute residual
+        residual = self.obs - prediction
+        # compute the negative likelihood from the data part
+        val = 0.5*np.sum((residual/self.obs_se)**2)
+        # compute the Gaussian prior
+        val += sum([
+            0.5*np.sum(((effects[i] - cov.gprior[0])/cov.gprior[1])**2)
+            for i, cov in enumerate(self.covariates)
         ])
-
-    def extract_bounds(self):
-        """Extract the bounds for the optimization problem.
-        """
-        return np.vstack([
-            cov_model.extract_bounds()
-            for cov_model in self.cov_models
+        # compute the random effects prior
+        val += sum([
+            0.5*np.sum((effects[i] - np.mean(effects[i]))**2)/cov.re_var
+            for i, cov in enumerate(self.covariates)
         ])
+        return val
 
-    def process_result(self, x):
-        """Process the result, organize it by group and scale by the
-        cov_scale.
-
-        Args:
-            x (np.ndarray): optimization variable.
+    def gradient(self, x: np.ndarray) -> np.ndarray:
+        """Optimization gradient function.
         """
-        coefs = np.vstack([
-            x[self.var_idx[i]]/cov_model.cov_scale if cov_model.use_re else
-            np.repeat(x[self.var_idx[i]], self.num_groups)/cov_model.cov_scale
-            for i, cov_model in enumerate(self.cov_models)
+        # convert optimization variable to total effect for cov and group
+        effects = utils.split_vec(x, self.var_sizes)
+        # compute the prediction
+        prediction = sum([
+            utils.list_dot(effect, self.cov_data[i])
+            for i, effect in enumerate(effects)
         ])
-        return {
-            g: coefs[:, i]
-            for i, g in enumerate(self.groups)
-        }
+        # compute scaled residual
+        residual = (self.obs - prediction)/self.obs_se**2
+        s_residual = utils.split_vec(residual, self.group_sizes)
+        # gradient from the data likelihood
+        grad = np.hstack([
+            utils.list_dot(self.cov_data[i], s_residual) if cov.use_re else
+            utils.list_dot(self.cov_data[i], [residual])
+            for i, cov in enumerate(self.covariates)
+        ])
+        # gradient from the Gaussian prior
+        grad += np.hstack([
+            (effects[i] - cov.gprior[0])/cov.gprior[1]**2
+            for i, cov in enumerate(self.covariates)
+        ])
+        # gradient from the random effects prior
+        grad += np.hstack([
+            (effects[i] - np.mean(effects[i]))/cov.re_var
+            for i, cov in enumerate(self.covariates)
+        ])
+        return grad
