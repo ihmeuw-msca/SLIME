@@ -1,79 +1,149 @@
 # -*- coding: utf-8 -*-
 """
-    model
-    ~~~~~
+    cov_model
+    ~~~~~~~~~
 """
+from dataclasses import dataclass, field
+from typing import List
 import numpy as np
-import scipy.optimize as sciopt
-from slime.core import MRData
-from .cov_model import CovModelSet
+from .data import MRData
+from .utils import create_dummy_bounds, create_dummy_gprior
+from .utils import split_vec, list_dot
+
+
+@dataclass
+class Covariate:
+    """Covariate model settings
+    """
+    name: str
+    use_re: bool = False
+    bounds: np.ndarray = field(default_factory=create_dummy_bounds)
+    gprior: np.ndarray = field(default_factory=create_dummy_gprior)
+    re_var: float = np.inf
+
+    def get_var_size(self, data: MRData) -> int:
+        """Get optimization variable size.
+        """
+        return data.num_groups if self.use_re else 1
+
+    def get_cov_data(self, data: MRData) -> List[np.ndarray]:
+        """Get the covariate.
+        """
+        assert self.name in data.covs
+        cov = data.covs[self.name]
+        if self.use_re:
+            return split_vec(cov, data.group_sizes)
+        else:
+            return [cov]
+
+    def get_var_bounds(self, data: MRData) -> np.ndarray:
+        """Get optimization variable bounds as the 2D array.
+        """
+        return np.repeat(self.bounds[None, :], self.get_var_size(data), axis=0)
 
 
 class MRModel:
-    """Linear MetaRegression Model.
+    """Covariate Model
     """
-    def __init__(self, data, cov_models):
-        """Constructor of the MetaRegression Model.
-
-        Args:
-            data (MRData): Data object
-            cov_models (CovModelSet): Covariate models.
+    def __init__(self,
+                 covariates: List[Covariate],
+                 data: MRData = None):
+        """Constructor of the covariate model.
         """
-        self.data = data
-        self.cov_models = cov_models
+        self.covariates = covariates
 
-        # unpack data
-        self.obs = data.df[data.col_obs].values
-        self.obs_se = data.df[data.col_obs_se].values
+        self.obs = None
+        self.obs_se = None
+        self.cov_data = None
+        self.group_sizes = None
+        self.var_sizes = None
+        self.var_bounds = None
 
-        # pass data into the covariate models
-        self.cov_models.attach_data(self.data)
-        self.bounds = self.cov_models.extract_bounds()
-        self.opt_result = None
-        self.result = None
+        if data is not None:
+            self.attach_data(data)
 
-    def objective(self, x):
-        """Objective function for the optimization.
-
-        Args:
-            x (np.ndarray): optimization variable.
+    def attach_data(self, data: MRData):
+        """Attach the data.
         """
-        # data
-        prediction = self.cov_models.predict(x)
-        val = 0.5*np.sum(((self.obs - prediction)/self.obs_se)**2)
+        self.obs = data.obs
+        self.obs_se = data.obs_se
+        self.cov_data = [
+            cov.get_cov_data(data)
+            for cov in self.covariates
+        ]
+        self.group_sizes = data.group_sizes
+        self.var_sizes = np.array([
+            cov.get_var_size(data)
+            for cov in self.covariates
+        ])
+        self.var_bounds = np.vstack([
+            cov.get_var_bounds(data)
+            for cov in self.covariates
+        ])
 
-        # prior
-        val += self.cov_models.prior_objective(x)
+    def detach_data(self):
+        """Detach the object from the data.
+        """
+        self.obs = None
+        self.obs_se = None
+        self.cov_data = None
+        self.group_sizes = None
+        self.var_sizes = None
+        self.var_bounds = None
 
+    def objective(self, x: np.ndarray) -> float:
+        """Optimization objective function.
+        """
+        # convert optimization variable to total effect for cov and group
+        effects = split_vec(x, self.var_sizes)
+        # compute the prediction
+        prediction = sum([
+            list_dot(effect, self.cov_data[i])
+            for i, effect in enumerate(effects)
+        ])
+        # compute residual
+        residual = self.obs - prediction
+        # compute the negative likelihood from the data part
+        val = 0.5*np.sum((residual/self.obs_se)**2)
+        # compute the Gaussian prior
+        val += sum([
+            0.5*np.sum(((effects[i] - cov.gprior[0])/cov.gprior[1])**2)
+            for i, cov in enumerate(self.covariates)
+        ])
+        # compute the random effects prior
+        val += sum([
+            0.5*np.sum((effects[i] - np.mean(effects[i]))**2)/cov.re_var
+            for i, cov in enumerate(self.covariates)
+        ])
         return val
 
-    def gradient(self, x):
-        """Gradient function for the optimization.
-
-        Args:
-            x (np.ndarray): optimization variable.
+    def gradient(self, x: np.ndarray) -> np.ndarray:
+        """Optimization gradient function.
         """
-        prediction = self.cov_models.predict(x)
-        residual = self.obs - prediction
-        return self.cov_models.gradient(x, residual, self.obs_se)
-
-    def fit_model(self, x0=None, options=None):
-        """Fit the model, including initial condition and parameter.
-        Args:
-            x0 (np.ndarray, optional):
-                Initial guess for the optimization variable.
-            options (None | dict):
-                Optimization solver options.
-        """
-        if x0 is None:
-            x0 = np.zeros(self.cov_models.var_size)
-        self.opt_result = sciopt.minimize(
-            fun=self.objective,
-            x0=x0,
-            jac=self.gradient,
-            method='L-BFGS-B',
-            bounds=self.bounds,
-            options=options
-        )
-
-        self.result = self.cov_models.process_result(self.opt_result.x)
+        # convert optimization variable to total effect for cov and group
+        effects = split_vec(x, self.var_sizes)
+        # compute the prediction
+        prediction = sum([
+            list_dot(effect, self.cov_data[i])
+            for i, effect in enumerate(effects)
+        ])
+        # compute scaled residual
+        residual = (self.obs - prediction)/self.obs_se**2
+        s_residual = split_vec(residual, self.group_sizes)
+        # gradient from the data likelihood
+        grad = np.hstack([
+            list_dot(self.cov_data[i], s_residual) if cov.use_re else
+            list_dot(self.cov_data[i], [residual])
+            for i, cov in enumerate(self.covariates)
+        ])
+        # gradient from the Gaussian prior
+        grad += np.hstack([
+            (effects[i] - cov.gprior[0])/cov.gprior[1]**2
+            for i, cov in enumerate(self.covariates)
+        ])
+        # gradient from the random effects prior
+        grad += np.hstack([
+            (effects[i] - np.mean(effects[i]))/cov.re_var
+            for i, cov in enumerate(self.covariates)
+        ])
+        return grad
