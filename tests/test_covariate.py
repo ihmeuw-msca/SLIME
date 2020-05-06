@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-    test_model
-    ~~~~~~~~~~
+    test_covariate
+    ~~~~~~~~~~~~~~
 """
 import numpy as np
 import pytest
@@ -27,7 +27,7 @@ def data():
 @pytest.mark.parametrize('bounds', [None, np.array([0.0, 5.0])])
 @pytest.mark.parametrize('gprior', [None, np.array([1.0, 1.0])])
 @pytest.mark.parametrize('re_var', [None, 1.0])
-def test_covariate_init(name, use_re, bounds, gprior, re_var):
+def test_init(name, use_re, bounds, gprior, re_var):
     cov = Covariate(name,
                     use_re=use_re,
                     bounds=bounds,
@@ -43,7 +43,7 @@ def test_covariate_init(name, use_re, bounds, gprior, re_var):
 
 @pytest.mark.parametrize('name', ['intercept'])
 @pytest.mark.parametrize('use_re', [True, False])
-def test_covariate_get_var_size(data, name, use_re):
+def test_get_var_size(data, name, use_re):
     cov = Covariate(name, use_re)
     if use_re:
         assert cov.get_var_size(data) == data.num_groups
@@ -53,7 +53,7 @@ def test_covariate_get_var_size(data, name, use_re):
 
 @pytest.mark.parametrize('name', ['intercept', 'c1', 'c2'])
 @pytest.mark.parametrize('use_re', [True, False])
-def test_covariate_get_cov_data(data, name, use_re):
+def test_get_cov_data(data, name, use_re):
     cov = Covariate(name, use_re)
     if use_re:
         assert len(cov.get_cov_data(data)) == data.num_groups
@@ -63,7 +63,7 @@ def test_covariate_get_cov_data(data, name, use_re):
 
 @pytest.mark.parametrize('name', ['intercept'])
 @pytest.mark.parametrize('use_re', [True, False])
-def test_covariate_get_var_bounds(data, name, use_re):
+def test_get_var_bounds(data, name, use_re):
     cov = Covariate(name, use_re)
     if use_re:
         assert len(cov.get_var_bounds(data)) == data.num_groups

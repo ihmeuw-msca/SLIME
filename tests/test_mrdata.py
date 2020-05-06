@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-    test_data
-    ~~~~~~~~~
+    test_mrdata
+    ~~~~~~~~~~~
 """
 import numpy as np
 import pandas as pd

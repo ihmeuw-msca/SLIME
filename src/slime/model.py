@@ -138,8 +138,8 @@ class MRModel:
         s_residual = split_vec(residual, self.group_sizes)
         # gradient from the data likelihood
         grad = np.hstack([
-            list_dot(self.cov_data[i], s_residual) if cov.use_re else
-            list_dot(self.cov_data[i], [residual])
+            -list_dot(self.cov_data[i], s_residual) if cov.use_re else
+            -list_dot(self.cov_data[i], [residual])
             for i, cov in enumerate(self.covariates)
         ])
         # gradient from the Gaussian prior
