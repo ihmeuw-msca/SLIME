@@ -41,3 +41,13 @@ def list_dot(x, y):
 
 def empty_array():
     return np.array(list())
+
+def is_bounds(x):
+    ok = len(x) == 2
+    ok = ok and (x[0] <= x[1])
+    return ok
+
+def is_gprior(x):
+    ok = len(x) == 2
+    ok = ok and (x[1] > 0.0)
+    return ok

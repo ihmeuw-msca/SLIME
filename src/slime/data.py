@@ -33,11 +33,6 @@ class MRData(StaticData):
     obs_se: np.ndarray = field(default_factory=empty_array)
     covs: Dict[str, np.ndarray] = field(default_factory=dict)
 
-    num_obs: int = field(init=False, default=0)
-    num_groups: int = field(init=False, default=0)
-    groups: np.ndarray = field(init=False, default_factory=empty_array)
-    group_sizes: np.ndarray = field(init=False, default_factory=empty_array)
-
     def __post_init__(self):
         super().__post_init__()
         self._get_num_obs()
@@ -48,7 +43,8 @@ class MRData(StaticData):
         assert len(self.group) == self.num_obs
         assert len(self.obs) == self.num_obs
         assert len(self.obs_se) == self.num_obs
-        assert all([len(self.covs[name]) == self.num_obs for name in self.covs])
+        assert all([len(self.covs[name]) == self.num_obs
+                    for name in self.covs])
         assert len(self.groups) == self.num_groups
         assert sum(self.group_sizes) == self.num_obs
 
@@ -78,10 +74,8 @@ class MRData(StaticData):
     def reset(self):
         """Reset all the attributes to default values.
         """
-        self.group = empty_array()
-        self.obs = empty_array()
-        self.obs_se = empty_array()
-        self.covs = dict()
+        for f in fields(self):
+            setattr(self, f.name, None)
         self.__post_init__()
 
     def load_df(self, df: pd.DataFrame,

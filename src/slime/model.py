@@ -6,13 +6,13 @@
 from dataclasses import dataclass, field
 from typing import List
 import numpy as np
-from .data import MRData
+from .data import StaticData, MRData
 from .utils import create_dummy_bounds, create_dummy_gprior
-from .utils import split_vec, list_dot
+from .utils import split_vec, list_dot, is_bounds, is_gprior
 
 
 @dataclass
-class Covariate:
+class Covariate(StaticData):
     """Covariate model settings
     """
     name: str
@@ -20,6 +20,12 @@ class Covariate:
     bounds: np.ndarray = field(default_factory=create_dummy_bounds)
     gprior: np.ndarray = field(default_factory=create_dummy_gprior)
     re_var: float = np.inf
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert is_bounds(self.bounds)
+        assert is_gprior(self.gprior)
+        assert self.re_var > 0.0
 
     def get_var_size(self, data: MRData) -> int:
         """Get optimization variable size.
