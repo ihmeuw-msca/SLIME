@@ -40,4 +40,4 @@ def list_dot(x, y):
 
 
 def empty_array():
-    return np.empty(list())
+    return np.array(list())

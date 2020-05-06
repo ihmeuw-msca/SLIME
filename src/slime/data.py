@@ -35,16 +35,18 @@ class MRData:
         assert len(self.obs_se) == self.num_obs
         assert all([len(self.covs[name]) == self.num_obs for name in self.covs])
         assert len(self.groups) == self.num_groups
-        assert sum(self.group_sizes) == self.num_groups
+        assert sum(self.group_sizes) == self.num_obs
 
     def _get_num_obs(self):
         """Get number of observation.
         """
+        self.obs = empty_array() if self.obs is None else self.obs
         self.num_obs = len(self.obs)
 
     def _get_group_structure(self):
         """Get group structure.
         """
+        self.group = empty_array() if self.group is None else self.group
         self.groups, self.group_sizes = np.unique(self.group,
                                                   return_counts=True)
         self.num_groups = len(self.groups)
@@ -52,15 +54,17 @@ class MRData:
     def _add_intercept(self):
         """Add intercept.
         """
+        self.covs = dict() if self.covs is None else self.covs
         self.covs['intercept'] = np.ones(self.num_obs)
 
     def _add_obs_se(self):
         """Add observation standard deviation.
         """
+        self.obs_se = empty_array() if self.obs_se is None else self.obs_se
         if len(self.obs_se) == 0:
             self.obs_se = np.ones(self.num_obs)
 
-    def reset_values(self):
+    def reset(self):
         """Reset all the attributes to default values.
         """
         self.group = empty_array()
@@ -76,7 +80,7 @@ class MRData:
                 col_covs: Union[List[str], None] = None):
         """Load data from data frame.
         """
-        self.reset_values()
+        self.reset()
         self.group = df[col_group].to_numpy()
         self.obs = df[col_obs].to_numpy()
         if col_obs_se is not None:
