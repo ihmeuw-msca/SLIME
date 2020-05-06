@@ -3,7 +3,7 @@
     data
     ~~~~
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, _MISSING_TYPE
 from typing import Dict, List, Union
 import numpy as np
 import pandas as pd
@@ -11,7 +11,21 @@ from .utils import empty_array
 
 
 @dataclass
-class MRData:
+class StaticData:
+    def __post_init__(self):
+        for f in fields(self):
+            if getattr(self, f.name) is None:
+                if not isinstance(f.default, _MISSING_TYPE):
+                    setattr(self, f.name, f.default)
+                if not isinstance(f.default_factory, _MISSING_TYPE):
+                    setattr(self, f.name, f.default_factory())
+            assert isinstance(getattr(self, f.name),
+                              f.type if not hasattr(f.type, '__origin__') else
+                              f.type.__origin__)
+
+
+@dataclass
+class MRData(StaticData):
     """Data for simple linear mixed effects model.
     """
     group: np.ndarray = field(default_factory=empty_array)
@@ -25,6 +39,7 @@ class MRData:
     group_sizes: np.ndarray = field(init=False, default_factory=empty_array)
 
     def __post_init__(self):
+        super().__post_init__()
         self._get_num_obs()
         self._get_group_structure()
         self._add_intercept()
@@ -40,13 +55,11 @@ class MRData:
     def _get_num_obs(self):
         """Get number of observation.
         """
-        self.obs = empty_array() if self.obs is None else self.obs
         self.num_obs = len(self.obs)
 
     def _get_group_structure(self):
         """Get group structure.
         """
-        self.group = empty_array() if self.group is None else self.group
         self.groups, self.group_sizes = np.unique(self.group,
                                                   return_counts=True)
         self.num_groups = len(self.groups)
@@ -54,13 +67,11 @@ class MRData:
     def _add_intercept(self):
         """Add intercept.
         """
-        self.covs = dict() if self.covs is None else self.covs
         self.covs['intercept'] = np.ones(self.num_obs)
 
     def _add_obs_se(self):
         """Add observation standard deviation.
         """
-        self.obs_se = empty_array() if self.obs_se is None else self.obs_se
         if len(self.obs_se) == 0:
             self.obs_se = np.ones(self.num_obs)
 
