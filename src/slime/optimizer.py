@@ -5,6 +5,7 @@
 """
 import numpy as np
 import scipy.optimize as sciopt
+
 from .model import MRModel
 
 
