@@ -3,10 +3,12 @@
     data
     ~~~~
 """
-from dataclasses import dataclass, field, fields, _MISSING_TYPE
+from dataclasses import _MISSING_TYPE, dataclass, field, fields
 from typing import Dict, List, Union
+
 import numpy as np
 import pandas as pd
+
 from .utils import empty_array
 
 

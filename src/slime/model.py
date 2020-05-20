@@ -51,6 +51,7 @@ class Covariate(StaticData):
 class MRModel:
     """Covariate Model
     """
+
     def __init__(self,
                  covariates: List[Covariate],
                  data: MRData = None):

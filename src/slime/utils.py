@@ -3,17 +3,18 @@
     utils
     ~~~~~
 """
+from typing import List, Union
 import numpy as np
 
 
-def sizes_to_indices(sizes):
-    """Converting sizes to corresponding indices.
+def sizes_to_indices(sizes: Union[List, np.ndarray]) -> List[np.ndarray]:
+    """Convert sizes to indicies.
+
     Args:
-        sizes (numpy.dnarray):
-            An array consist of non-negative number.
+        sizes (Union[List, np.ndarray]): Sizes of the given variables.
+
     Returns:
-        list{range}:
-            List the indices.
+        List[np.ndarray]: Corresponding indices of the variables.
     """
     u_id = np.cumsum(sizes)
     l_id = np.insert(u_id[:-1], 0, 0)
@@ -21,6 +22,7 @@ def sizes_to_indices(sizes):
     return [
         np.arange(l, u) for l, u in zip(l_id, u_id)
     ]
+
 
 def create_dummy_bounds():
     return np.array([-np.inf, np.inf])
@@ -42,10 +44,12 @@ def list_dot(x, y):
 def empty_array():
     return np.array(list())
 
+
 def is_bounds(x):
     ok = len(x) == 2
     ok = ok and (x[0] <= x[1])
     return ok
+
 
 def is_gprior(x):
     ok = len(x) == 2

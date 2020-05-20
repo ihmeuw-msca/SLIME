@@ -11,6 +11,7 @@ from .model import MRModel
 class Optimizer:
     """Optimizer object.
     """
+
     def __init__(self, model: MRModel):
         self.objective = model.objective
         self.gradient = model.gradient
@@ -25,6 +26,7 @@ class Optimizer:
 class SciOptLBFGSB(Optimizer):
     """Scipy optimization LBFGSB solver.
     """
+
     def __init__(self, model):
         super().__init__(model)
 
