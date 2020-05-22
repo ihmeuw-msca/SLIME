@@ -59,6 +59,17 @@ class MRModel:
         residual = self.obs - prediction
         return self.cov_models.gradient(x, residual, self.obs_se)
 
+    def hessian(self, x: np.array) -> np.ndarray:
+        """Hessian function for the optimtization.
+
+        Args:
+            x (np.array): optimization variable.
+
+        Returns:
+            np.ndarray: Hessian matrix.
+        """
+        return self.cov_models.hessian(x, self.obs_se)
+
     def fit_model(self, x0=None, options=None):
         """Fit the model, including initial condition and parameter.
         Args:
@@ -93,7 +104,7 @@ class MRModel:
         if self.opt_result is None or self.result is None:
             RuntimeError('Fit the model first before sample the solution.')
 
-        hessian = self.cov_models.hessian(self.opt_result.x)
+        hessian = self.hessian(self.opt_result.x)
         info_mat = np.linalg.inv(hessian)
 
         samples = np.random.multivariate_normal(mean=self.opt_result.x,
