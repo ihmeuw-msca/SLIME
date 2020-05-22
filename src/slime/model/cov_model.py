@@ -12,10 +12,11 @@ import slime.core.utils as utils
 class CovModel:
     """Single covariate model.
     """
+
     def __init__(self, col_cov,
                  use_re=False,
-                 bounds=None,
-                 gprior=None,
+                 bounds=(-np.inf, np.inf),
+                 gprior=(0.0, np.inf),
                  re_var=1.0):
         """Constructor CovModel.
 
@@ -31,8 +32,8 @@ class CovModel:
         """
         self.col_cov = col_cov
         self.use_re = use_re
-        self.bounds = bounds
-        self.gprior = gprior
+        self.bounds = np.array(bounds)
+        self.gprior = np.array(gprior)
         self.re_var = re_var
 
         self.name = self.col_cov
@@ -111,11 +112,11 @@ class CovModel:
 
         x = x/self.cov_scale
         # random effects priors
-        if self.use_re:
+        if self.use_re and np.isfinite(self.re_var):
             val += 0.5*np.sum((x - np.mean(x))**2)/self.re_var
 
         # Gaussian prior for the effects
-        if self.gprior is not None:
+        if np.isfinite(self.gprior[1]):
             val += 0.5*np.sum(((x - self.gprior[0])/self.gprior[1])**2)
 
         return val
@@ -133,10 +134,10 @@ class CovModel:
         """
         grad = -(self.cov_mat.T/obs_se).dot(residual/obs_se)
         x = x/self.cov_scale
-        if self.use_re:
+        if self.use_re and np.isfinite(self.re_var):
             grad += ((x - np.mean(x))/self.re_var)/self.cov_scale
 
-        if self.gprior is not None:
+        if np.isfinite(self.gprior[1]):
             grad += ((x - self.gprior[0])/self.gprior[1]**2)/self.cov_scale
 
         return grad
@@ -144,17 +145,14 @@ class CovModel:
     def extract_bounds(self):
         """Extract the bounds for the optimization problem.
         """
-        if self.bounds is None:
-            bounds = np.array([-np.inf, np.inf])
-        else:
-            bounds = self.bounds*self.cov_scale
-
+        bounds = self.bounds*self.cov_scale
         return np.repeat(bounds[None, :], self.var_size, axis=0)
 
 
 class CovModelSet:
     """A set of CovModel.
     """
+
     def __init__(self, cov_models, data=None):
         """Constructor of the covariate model set.
 
@@ -244,6 +242,26 @@ class CovModelSet:
             cov_model.gradient(x[self.var_idx[i]], residual, obs_se)
             for i, cov_model in enumerate(self.cov_models)
         ])
+
+    def hessian(self, x: np.array, obs_se: np.array) -> np.ndarray:
+        """Hessian function.
+
+        Args:
+            x (np.array): optimization variable.
+            obs_se (np.array): observation standard error.
+
+        Returns:
+            np.ndarray: Hessian matrix.
+        """
+        cov_mat = np.hstack([
+            cov_model.cov_mat
+            for cov_model in self.cov_models
+        ])
+        prior_diag = np.hstack([
+            np.repeat(1.0/cov_model.gprior[1]**2, cov_model.var_size)
+            for cov_model in self.cov_models
+        ])
+        return (cov_mat.T/obs_se**2).dot(cov_mat) + np.diag(prior_diag)
 
     def extract_bounds(self):
         """Extract the bounds for the optimization problem.
