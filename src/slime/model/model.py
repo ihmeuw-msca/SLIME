@@ -7,12 +7,14 @@ import numpy as np
 import scipy.optimize as sciopt
 from slime.core import MRData
 from .cov_model import CovModelSet
+from typing import Dict, Any
 
 
 class MRModel:
     """Linear MetaRegression Model.
     """
-    def __init__(self, data, cov_models):
+
+    def __init__(self, data: MRData, cov_models: CovModelSet):
         """Constructor of the MetaRegression Model.
 
         Args:
@@ -57,6 +59,17 @@ class MRModel:
         residual = self.obs - prediction
         return self.cov_models.gradient(x, residual, self.obs_se)
 
+    def hessian(self, x: np.array) -> np.ndarray:
+        """Hessian function for the optimtization.
+
+        Args:
+            x (np.array): optimization variable.
+
+        Returns:
+            np.ndarray: Hessian matrix.
+        """
+        return self.cov_models.hessian(x, self.obs_se)
+
     def fit_model(self, x0=None, options=None):
         """Fit the model, including initial condition and parameter.
         Args:
@@ -77,3 +90,38 @@ class MRModel:
         )
 
         self.result = self.cov_models.process_result(self.opt_result.x)
+
+    def sample_soln(self, num_draws: int = 1) -> Dict[Any, np.ndarray]:
+        """Create draws for the solution.
+
+        Args:
+            num_draws (int, optional): Number of draws. Defaults to 1.
+
+        Returns:
+            Dict[Any, np.ndarray]:
+                Dictionary with group_id as the key solution draws as the value.
+        """
+        if self.opt_result is None or self.result is None:
+            RuntimeError('Fit the model first before sample the solution.')
+
+        hessian = self.hessian(self.opt_result.x)
+        info_mat = np.linalg.inv(hessian)
+
+        samples = np.random.multivariate_normal(mean=self.opt_result.x,
+                                                cov=info_mat,
+                                                size=num_draws)
+        _soln_samples = [
+            self.cov_models.process_result(
+                np.minimum(np.maximum(
+                    samples[i], self.bounds[:, 0]), self.bounds[:, 1])
+            )
+            for i in range(num_draws)
+        ]
+        soln_samples = {
+            g: np.vstack([
+                _soln_samples[i][g]
+                for i in range(num_draws)
+            ])
+            for g in self.cov_models.groups
+        }
+        return soln_samples
