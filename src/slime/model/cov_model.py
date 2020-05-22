@@ -46,7 +46,7 @@ class CovModel:
         self.group_idx = None
         self.group_sizes = None
 
-    def attach_data(self, data):
+    def attach_data(self, data: MRData):
         """Attach the data.
 
         Args:
